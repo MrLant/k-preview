@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>期货K线回放复盘系统</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header id="toolbar">
+  <div class="brand"><span class="logo">K</span><span class="brand-text">期货K线回放复盘</span></div>
+  <div class="symbol-box">
+    <input id="symbol-name" title="合约名称(可编辑)" value="演示合约">
+    <span id="symbol-code" class="symbol-code">RB9999</span>
+  </div>
+  <div id="bar-info" class="bar-info"></div>
+  <div class="spacer"></div>
+  <button id="btn-settings" class="btn ghost" title="交易参数设置">设置</button>
+  <button id="btn-import" class="btn ghost" title="导入 CSV / JSON 分钟行情数据">导入数据</button>
+  <button id="btn-random" class="btn ghost" title="重新生成一段随机期货行情">随机行情</button>
+  <input type="file" id="file-input" accept=".csv,.json,.txt" hidden>
+</header>
+
+<main id="main">
+  <!-- 左侧:图表与回放控制 -->
+  <section id="chart-panel">
+    <div id="replay-bar">
+      <div class="period-group" id="period-group" title="K线周期 (快捷键 1 / 2 / 3)">
+        <button class="btn period" data-period="1">1分</button>
+        <button class="btn period active" data-period="5">5分</button>
+        <button class="btn period" data-period="30">30分</button>
+      </div>
+      <button id="btn-link" class="btn small ghost" title="多窗联动:1/5/30分钟同屏,光标与回放同步 (M)">多窗联动</button>
+      <button id="btn-home" class="btn icon" title="回到起点 (Home)">⏮</button>
+      <button id="btn-step-back" class="btn icon" title="上一根 (←)">◀</button>
+      <button id="btn-play" class="btn primary" title="播放 / 暂停 (空格)">播放</button>
+      <button id="btn-step-fwd" class="btn icon" title="下一根 (→)">▶</button>
+      <button id="btn-end" class="btn icon" title="跳到最后一根 (End)">⏭</button>
+      <div class="speed-box">
+        <label for="speed-select">速度</label>
+        <select id="speed-select" title="回放速度">
+          <option value="0.5">0.5x</option>
+          <option value="1" selected>1x</option>
+          <option value="2">2x</option>
+          <option value="4">4x</option>
+          <option value="8">8x</option>
+          <option value="16">16x</option>
+          <option value="32">32x</option>
+        </select>
+      </div>
+      <div class="spacer"></div>
+      <div id="replay-pos" class="replay-pos">-- / --</div>
+      <button id="btn-reset" class="btn ghost small" title="清空交易、恢复初始资金并回到起点 (R)">重置复盘</button>
+    </div>
+    <div id="chart-area">
+      <!-- 单图模式 -->
+      <div id="chart-wrap">
+        <canvas id="chart"></canvas>
+        <div id="tooltip" class="tooltip" hidden></div>
+      </div>
+      <!-- 多窗联动模式:1 / 5 / 30 分钟同屏,光标/回放/标记联动 -->
+      <div id="chart-multi" hidden>
+        <div class="mc-panel" id="mc-panel-1" data-period="1">
+          <div class="mc-head"><span class="mc-title">1分钟</span><span class="mc-quote" id="mc-quote-1"></span></div>
+          <div class="mc-body">
+            <canvas id="mc-canvas-1"></canvas>
+            <div id="mc-tip-1" class="tooltip" hidden></div>
+          </div>
+        </div>
+        <div class="mc-panel" id="mc-panel-5" data-period="5">
+          <div class="mc-head"><span class="mc-title">5分钟</span><span class="mc-quote" id="mc-quote-5"></span></div>
+          <div class="mc-body">
+            <canvas id="mc-canvas-5"></canvas>
+            <div id="mc-tip-5" class="tooltip" hidden></div>
+          </div>
+        </div>
+        <div class="mc-panel" id="mc-panel-30" data-period="30">
+          <div class="mc-head"><span class="mc-title">30分钟</span><span class="mc-quote" id="mc-quote-30"></span></div>
+          <div class="mc-body">
+            <canvas id="mc-canvas-30"></canvas>
+            <div id="mc-tip-30" class="tooltip" hidden></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="progress-row">
+      <span class="progress-label">回放进度</span>
+      <input type="range" id="progress" min="0" max="0" step="1" value="0" title="拖动可跳转到任意位置(向后拖动会自动撤销之后的交易)">
+    </div>
+  </section>
+
+  <!-- 右侧:账户 / 交易 / 统计 / 记录 -->
+  <aside id="side-panel">
+    <section class="panel">
+      <h3>账户总览</h3>
+      <div id="account-grid" class="kv-grid"></div>
+    </section>
+
+    <section class="panel">
+      <h3>模拟交易</h3>
+      <div class="trade-price">最新价 <b id="trade-price">--</b></div>
+      <div class="qty-row">
+        <label for="lots-input">手数(手)</label>
+        <input id="lots-input" type="number" min="0" step="1" value="1">
+      </div>
+      <div class="quick-row"><span class="quick-label">开仓</span>
+        <button class="btn tiny" data-open="0.25">25%</button>
+        <button class="btn tiny" data-open="0.5">50%</button>
+        <button class="btn tiny" data-open="0.75">75%</button>
+        <button class="btn tiny" data-open="1">全仓</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-open-long" class="btn buy" title="买入开多仓 (B)">开多 (B)</button>
+        <button id="btn-open-short" class="btn sell" title="卖出开空仓 (S)">开空 (S)</button>
+      </div>
+      <div class="btn-row">
+        <button id="btn-close-long" class="btn ghost sell" title="卖出平掉多头持仓 (L)">平多 (L)</button>
+        <button id="btn-close-short" class="btn ghost buy" title="买入平掉空头持仓 (C)">平空 (C)</button>
+        <button id="btn-close-all" class="btn ghost" title="全部平仓 (X)">全平 (X)</button>
+      </div>
+      <div id="trade-hint" class="hint">--</div>
+    </section>
+
+    <section class="panel">
+      <h3>复盘统计</h3>
+      <canvas id="equity-curve" class="equity-curve"></canvas>
+      <div id="stats-grid" class="kv-grid"></div>
+      <div class="btn-row">
+        <button id="btn-report" class="btn ghost small">复盘报告</button>
+        <button id="btn-export" class="btn ghost small">导出记录</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>交易记录 <span id="trade-count" class="badge">0</span></h3>
+      <div class="table-wrap">
+        <table id="trades-table">
+          <thead><tr><th>时间</th><th>操作</th><th>价格</th><th>手数</th><th>盈亏</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<!-- 设置弹窗 -->
+<div id="modal-settings" class="modal" hidden>
+  <div class="modal-box">
+    <h3>交易参数设置</h3>
+    <div class="form-grid">
+      <label>品种预设
+        <select id="set-preset"></select>
+      </label>
+      <label>初始资金(元)<input id="set-capital" type="number" min="10000" step="10000" value="200000"></label>
+      <label>合约乘数<input id="set-mult" type="number" min="1" step="1" value="10"></label>
+      <label>保证金率(%)<input id="set-margin" type="number" min="1" max="100" step="0.5" value="13"></label>
+      <label>每手手续费(元)<input id="set-fee" type="number" min="0" step="0.5" value="4"></label>
+      <label class="checkbox"><input id="set-liq" type="checkbox" checked>风险度达 100% 自动强平</label>
+      <label class="checkbox"><input id="set-redup" type="checkbox" checked>红涨绿跌配色</label>
+    </div>
+    <p class="modal-tip">选择品种预设会自动填充乘数/保证金率/手续费,可手动微调。应用时若选择了与当前不同的品种,将切换至该品种的随机行情(顶栏品种与代码同步更新);选择「自定义参数」或相同品种则保留当前行情,仅重置账户与回放进度。</p>
+    <div class="modal-footer">
+      <button id="btn-close-settings" class="btn ghost">取消</button>
+      <button id="btn-apply-settings" class="btn primary">应用并重置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 复盘报告弹窗 -->
+<div id="modal-summary" class="modal" hidden>
+  <div class="modal-box wide">
+    <h3>复盘报告</h3>
+    <div id="summary-body"></div>
+    <canvas id="summary-equity" class="summary-equity"></canvas>
+    <div class="modal-footer">
+      <button id="btn-summary-close" class="btn ghost">关闭</button>
+      <button id="btn-replay-again" class="btn primary">重新复盘</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script src="js/utils.js"></script>
+<script src="js/data.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/player.js"></script>
+<script src="js/trading.js"></script>
+<script src="js/review.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
